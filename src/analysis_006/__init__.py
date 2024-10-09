@@ -6,31 +6,19 @@ import pandas as pd
 # https://github.com/ChaloupkaM01/ProjectsAnalysis
 #
 #####################################################################################
-query = """query($where: GroupInputWhereFilter){
-    result: groupPage (where: $where, limit:1000) {
+
+# where = {"valid": {"_eq": true}}
+
+query = """query($where: ProjectWhereFilter){ 
+    result: projectPage(where: $where, limit:1000) {
     id
     name
-    memberships(limit:1000) {
-      user {
-        id
-        fullname
-        classifications {
-          level {
-            id
-            name
-          }
-          id
-          order
-          semester {
-            id
-            order
-            subject {
-              id
-              name
-            }
-          }
-        }
-      }
+    startdate
+    enddate
+    valid
+    group {
+      id
+      name
     }
   }
 }"""
@@ -52,17 +40,12 @@ async def resolve_json(variables, cookies):
 async def resolve_flat_json(variables, cookies):
     jsonData = await resolve_json(variables=variables, cookies=cookies)
     mapper = {
-        "group_id": "id",
-        "group_name": "name",
-        "user_id": "memberships.user.id",
-        "user_email": "memberships.user.email",
-        "user_fullname": "memberships.user.fullname",
-        "classification_id": "memberships.user.classifications.id",
-        "classification_order": "memberships.user.classifications.order",
-        "classification_level": "memberships.user.classifications.level.name",
-        "classification_subject_id": "memberships.user.classifications.semester.subject.id",
-        "classification_subject_name": "memberships.user.classifications.semester.subject.name",
-        "classification_sem": "memberships.user.classifications.semester.order",       
+        "projectID": "id",
+        "projectName": "name",
+        "startDate": "startdate",
+        "endDate": "enddate",
+        "groupID": "group.id", 
+        "groupName": "group.name"
     }
     # print(jsonData, flush=True)
     pivotdata = list(flatten(jsonData, {}, mapper))
@@ -74,10 +57,10 @@ async def resolve_df_pivot(variables, cookies):
     # print(pivotdata)
     df = pd.DataFrame(pivotdata)
 
-    pdf = pd.pivot_table(df, values="user_fullname", index="classification_sem", columns=["classification_level"], aggfunc="count")
+    
+    pdf = pd.pivot_table(df, values="projectID", index="groupName", columns=["projectID"], aggfunc="count")
 
     return pdf
-
 
 #####################################################################################
 #
@@ -107,13 +90,13 @@ def createRouter(prefix):
         "HTML tabulka s daty pro výpočet kontingenční tabulky"
         wherevalue = None if where is None else re.sub(r'{([^:"]*):', r'{"\1":', where) 
         wherejson = json.loads(wherevalue)
-        pd = await resolve_flat_json(
+        data = await resolve_flat_json(
             variables={
                 "where": wherejson
             },
             cookies=request.cookies
         )
-        df = pd.DataFrame(pd)
+        df = pd.DataFrame(data)
         return await process_df_as_html_page(df)
     
     @router.get(f"{mainpath}/flatjson", tags=tags, summary="Data ve formátu JSON transformována do podoby vstupu pro kontingenční tabulku")
@@ -122,7 +105,9 @@ def createRouter(prefix):
         where: str = Query(description=WhereDescription), 
     ):
         "Data ve formátu JSON transformována do podoby vstupu pro kontingenční tabulku"
+        print(where, flush=True)
         wherevalue = None if where is None else re.sub(r'{([^:"]*):', r'{"\1":', where) 
+        print(wherevalue, flush=True)
         wherejson = json.loads(wherevalue)
         pd = await resolve_flat_json(
             variables={
@@ -185,5 +170,21 @@ def createRouter(prefix):
                 'Content-Disposition': 'attachment; filename="Analyza.xlsx"'
             }
             return Response(stream, media_type='application/vnd.ms-excel', headers=headers)
-        
+
+    @router.get(f"{mainpath}/pivot", tags=tags, summary="Kontingenční tabulka ve formátu HTML")
+    async def user_classification_html(
+        request: Request,
+        where: str = Query(description=WhereDescription)
+    ):
+        "Kontingenční tabulka ve formátu HTML"
+        wherevalue = None if where is None else re.sub(r'{([^:"]*):', r'{"\1":', where) 
+        wherejson = json.loads(wherevalue)
+        data = await resolve_df_pivot(
+            variables={
+                "where": wherejson
+            },
+            cookies=request.cookies
+        )
+        return await process_df_as_html_page(data)
+
     return router
