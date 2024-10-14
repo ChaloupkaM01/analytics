@@ -9,16 +9,34 @@ import pandas as pd
 
 # where = {"valid": {"_eq": true}}
 
-query = """query($where: ProjectWhereFilter){ 
-    result: projectPage(where: $where, limit:1000) {
+# query = """query($where: ProjectWhereFilter){ 
+#     result: projectPage(where: $where, limit:1000) {
+#     id
+#     name
+#     startdate
+#     enddate
+#     valid
+#     group {
+#       id
+#       name
+#     }
+#   }
+# }""" 
+
+query = """query ($where: ProjectWhereFilter) {
+  result: projectPage(where: $where, limit: 1000) {
     id
     name
-    startdate
-    enddate
     valid
     group {
-      id
       name
+      id
+      memberships {
+        user {
+          id
+          fullname
+        }
+      }
     }
   }
 }"""
@@ -39,13 +57,23 @@ async def resolve_json(variables, cookies):
 
 async def resolve_flat_json(variables, cookies):
     jsonData = await resolve_json(variables=variables, cookies=cookies)
+    # mapper = {
+    #     "projectID": "id",
+    #     "projectName": "name",
+    #     "startDate": "startdate",
+    #     "endDate": "enddate",
+    #     "groupID": "group.id", 
+    #     "groupName": "group.name"
+    # }
+
     mapper = {
         "projectID": "id",
         "projectName": "name",
-        "startDate": "startdate",
-        "endDate": "enddate",
+        "validity": "valid",
         "groupID": "group.id", 
-        "groupName": "group.name"
+        "groupName": "group.name",
+        "userID": "group.memberships.user.id",
+        "userFullname": "group.memberships.user.fullname"
     }
     # print(jsonData, flush=True)
     pivotdata = list(flatten(jsonData, {}, mapper))
@@ -56,9 +84,8 @@ async def resolve_df_pivot(variables, cookies):
 
     # print(pivotdata)
     df = pd.DataFrame(pivotdata)
-
     
-    pdf = pd.pivot_table(df, values="projectID", index="groupName", columns=["projectID"], aggfunc="count")
+    pdf = pd.pivot_table(df, values="validity", index="userFullname", columns=["projectName"], aggfunc="count", fill_value=0)
 
     return pdf
 
